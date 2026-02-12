@@ -1,14 +1,15 @@
 """Custom collate function for instruction fine-tuning batches."""
 
+from typing import Dict, List, Optional
+
 import torch
-from typing import List, Dict
 
 
 def custom_collate_fn(
     batch: List[Dict],
     pad_token_id: int = 50256,
     ignore_index: int = -100,
-    allowed_max_length: int = None,
+    allowed_max_length: Optional[int] = None,
     device: str = "cpu"
 ) -> Dict:
     """Collate batch of tokenized examples (Raschka approach).

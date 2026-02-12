@@ -1,10 +1,11 @@
 """InstructionDataset: Loads curated dataset and tokenizes at initialization."""
 
-import torch
-from torch.utils.data import Dataset
-from datasets import load_dataset
+from typing import Any, Dict
+
 import tiktoken
-from typing import Dict
+import torch
+from datasets import load_dataset
+from torch.utils.data import Dataset
 
 
 class InstructionDataset(Dataset):
@@ -42,7 +43,8 @@ class InstructionDataset(Dataset):
 
             # Concatenate instruction + response (NO endoftext token)
             # EOT will be added in the collate function
-            full_text = example["instruction"] + example["response"]
+            example_dict: Dict[str, Any] = dict(example)
+            full_text = example_dict["instruction"] + example_dict["response"]
 
             # Tokenize
             token_ids = self.tokenizer.encode(full_text)
@@ -74,8 +76,6 @@ class InstructionDataset(Dataset):
 
 
 if __name__ == "__main__":
-    import sys
-
     # Test loading and tokenizing
     print("=" * 70)
     print("InstructionDataset Test")

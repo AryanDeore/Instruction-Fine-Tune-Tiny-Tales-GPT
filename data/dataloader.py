@@ -1,19 +1,22 @@
 """DataLoader creation utilities for instruction fine-tuning."""
 
+from typing import Optional
+
 import torch
 from torch.utils.data import DataLoader
-from data.instruction_dataset import InstructionDataset
+
 from data.collate import custom_collate_fn
+from data.instruction_dataset import InstructionDataset
 
 
 def create_dataloader(
     split: str = "train",
     batch_size: int = 8,
-    max_examples: int = None,
+    max_examples: Optional[int] = None,
     max_length: int = 512,
     shuffle: bool = True,
     num_workers: int = 0,
-):
+) -> DataLoader:
     """Create a DataLoader for instruction fine-tuning.
 
     Args:
