@@ -5,6 +5,7 @@ using the TinyStories instruction dataset with 50-50 happy/sad split.
 """
 
 import os
+import time
 from typing import Optional
 
 import torch
@@ -31,11 +32,20 @@ def load_pretrained_model(checkpoint_path: str, device: str = "cpu") -> GPT2:
 
     # Initialize model with config
     config = get_config("30m")
-    model = GPT2(**config)
+    # Filter config to only include parameters GPT2.__init__ accepts
+    model_config = {
+        k: v for k, v in config.items()
+        if k in ["vocab_size", "context_length", "embedding_dim", "num_layers", "num_heads", "dropout_rate"]
+    }
+    model = GPT2(**model_config)
 
     # Load checkpoint
     checkpoint = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(checkpoint)
+    # Handle checkpoint format with metadata
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        model.load_state_dict(checkpoint["model_state_dict"])
+    else:
+        model.load_state_dict(checkpoint)
 
     model.to(device)
     model.eval()
@@ -178,13 +188,15 @@ def save_checkpoint(
 
 
 def main(
-    pretrained_checkpoint: str = "checkpoints/30M_model.pt",
+    pretrained_checkpoint: Optional[str] = None,
     batch_size: int = 8,
     learning_rate: float = 5e-5,
     num_epochs: int = 2,
     max_length: int = 512,
-    checkpoint_dir: str = "checkpoints/finetune",
+    checkpoint_dir: Optional[str] = None,
     device: Optional[str] = None,
+    max_tokens: Optional[int] = None,
+    model_size: str = "30m",
 ):
     """Main training script.
 
@@ -196,15 +208,34 @@ def main(
         max_length: Maximum sequence length
         checkpoint_dir: Directory to save checkpoints
         device: Device to train on ("cpu" or "cuda")
+        max_tokens: Maximum tokens to train on (optional)
+        model_size: Model size to use ("30m" or "125m")
     """
+    # Set defaults based on model_size if not provided
+    if pretrained_checkpoint is None:
+        pretrained_checkpoint = f"checkpoints/pre_trained_gpt2-{model_size}/model_epoch_{'6' if model_size == '30m' else '3'}.pt"
+    if checkpoint_dir is None:
+        checkpoint_dir = f"checkpoints/sft_{model_size.upper()}_model"
+
     # Setup
     if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
     print(f"Device: {device}")
+    if device == "cuda":
+        num_gpus = torch.cuda.device_count()
+        print(f"Number of GPUs: {num_gpus}")
+    elif device == "mps":
+        print("Using Metal Performance Shaders (MPS) on Mac")
     print(f"Batch size: {batch_size}")
     print(f"Learning rate: {learning_rate}")
     print(f"Num epochs: {num_epochs}")
     print(f"Max length: {max_length}")
+    print(f"Max tokens: {max_tokens if max_tokens is not None else 'All'}")
     print("-" * 70)
 
     # Load model
@@ -227,6 +258,20 @@ def main(
     print(f"  Train batches: {len(train_loader):,}")
     print(f"  Val batches: {len(val_loader):,}")
 
+    # Calculate total tokens
+    total_tokens = len(train_loader) * batch_size * max_length
+
+    # Limit training data if max_tokens specified
+    if max_tokens is not None:
+        max_batches = max(1, max_tokens // (batch_size * max_length))
+        train_loader = list(train_loader)[:max_batches]
+        total_tokens = len(train_loader) * batch_size * max_length
+        print(f"  ⚠ Limited to {max_batches} batches ({total_tokens:,} tokens)")
+
+    print(f"  Total training tokens: {total_tokens:,}")
+    print(f"  Tokens per epoch: {total_tokens:,}")
+    print(f"  Total tokens (all epochs): {total_tokens * num_epochs:,}")
+
     # Setup optimizer
     optimizer = AdamW(model.parameters(), lr=learning_rate, weight_decay=0.1)
     print("\nOptimizer: AdamW")
@@ -234,9 +279,17 @@ def main(
     print("  Weight decay: 0.1")
     print("-" * 70)
 
+    # Print model config
+    config = get_config("30m")
+    print("\nModel Config:")
+    for key, value in config.items():
+        print(f"  {key}: {value}")
+    print("-" * 70)
+
     # Training loop
-    print("\nStarting training...")
+    print(f"\nStarting training on {device}...")
     best_val_loss = float("inf")
+    start_time = time.time()
 
     for epoch in range(1, num_epochs + 1):
         print(f"\nEpoch {epoch}/{num_epochs}")
@@ -257,8 +310,13 @@ def main(
             best_val_loss = val_loss
             print(f"  ✓ Best val loss improved to {val_loss:.4f}")
 
+    elapsed_time = time.time() - start_time
+    hours, remainder = divmod(int(elapsed_time), 3600)
+    minutes, seconds = divmod(remainder, 60)
+
     print("\n" + "=" * 70)
     print("Training complete!")
+    print(f"Time elapsed: {hours}h {minutes}m {seconds}s")
     print(f"Best validation loss: {best_val_loss:.4f}")
     print(f"Checkpoints saved to: {checkpoint_dir}")
     print("=" * 70)
@@ -269,9 +327,15 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Fine-tune GPT-2 on instruction tasks")
     parser.add_argument(
+        "--model-size",
+        choices=["30m", "125m"],
+        default="30m",
+        help="Model size to finetune (30m or 125m)",
+    )
+    parser.add_argument(
         "--checkpoint",
-        default="checkpoints/30M_model.pt",
-        help="Path to pretrained model checkpoint",
+        default=None,
+        help="Path to pretrained model checkpoint (overrides --model-size)",
     )
     parser.add_argument("--batch-size", type=int, default=8, help="Batch size")
     parser.add_argument("--lr", type=float, default=5e-5, help="Learning rate")
@@ -280,9 +344,17 @@ if __name__ == "__main__":
         "--max-length", type=int, default=512, help="Max sequence length"
     )
     parser.add_argument(
-        "--checkpoint-dir", default="checkpoints/finetune", help="Checkpoint directory"
+        "--checkpoint-dir",
+        default=None,
+        help="Checkpoint directory (overrides --model-size)",
     )
     parser.add_argument("--device", default=None, help="Device (cpu or cuda)")
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=None,
+        help="Maximum number of tokens to train on (useful for testing)",
+    )
 
     args = parser.parse_args()
 
@@ -294,4 +366,6 @@ if __name__ == "__main__":
         max_length=args.max_length,
         checkpoint_dir=args.checkpoint_dir,
         device=args.device,
+        max_tokens=args.max_tokens,
+        model_size=args.model_size,
     )

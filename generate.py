@@ -9,10 +9,12 @@ Supports:
 - Throughput measurement (tokens/sec)
 """
 
-import torch
-import tiktoken
-import time
 import argparse
+import time
+
+import tiktoken
+import torch
+
 from checkpoint import load_model
 from utils.formatting import format_instruction
 
@@ -31,13 +33,7 @@ def token_ids_to_text(token_ids, tokenizer):
 
 
 def generate(
-    model,
-    idx,
-    max_new_tokens,
-    context_size,
-    temperature=1.0,
-    top_k=None,
-    eos_id=None
+    model, idx, max_new_tokens, context_size, temperature=1.0, top_k=None, eos_id=None
 ):
     """
     Generate tokens autoregressively.
@@ -71,9 +67,7 @@ def generate(
             top_logits, _ = torch.topk(logits, top_k)
             min_val = top_logits[:, -1]
             logits = torch.where(
-                logits < min_val,
-                torch.tensor(float("-inf")).to(logits.device),
-                logits
+                logits < min_val, torch.tensor(float("-inf")).to(logits.device), logits
             )
 
         # Temperature scaling
@@ -110,7 +104,7 @@ def generate_story(
     temperature=1.0,
     top_k=50,
     eos_id=50256,
-    device="cpu"
+    device="cpu",
 ):
     """
     Generate a story given a topic and ending type.
@@ -148,70 +142,98 @@ def generate_story(
         context_size=actual_context_length,
         temperature=temperature,
         top_k=top_k,
-        eos_id=eos_id
+        eos_id=eos_id,
     )
 
     # Decode and return story (excluding the instruction part)
     full_text = token_ids_to_text(output_ids, tokenizer)
-    story = full_text[len(instruction_prompt):]  # Remove instruction prefix
+    story = full_text[len(instruction_prompt) :]  # Remove instruction prefix
 
     return story.strip()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate instruction-following stories")
+    parser = argparse.ArgumentParser(
+        description="Generate instruction-following stories"
+    )
+    parser.add_argument(
+        "--model-size",
+        choices=["30m", "125m"],
+        default="30m",
+        help="Model size to use (30m or 125m)",
+    )
     parser.add_argument(
         "--checkpoint",
         type=str,
-        default="checkpoints/gpt2-30m/model_epoch_1.pt",
-        help="Path to fine-tuned model checkpoint"
+        default=None,
+        help="Path to fine-tuned model checkpoint (overrides --model-size)",
     )
     parser.add_argument(
         "--topic",
         type=str,
-        default="a brave knight on an adventure",
-        help="Story topic"
+        default=None,
+        help="Story topic (interactive prompt if not provided)",
     )
     parser.add_argument(
         "--ending",
         type=str,
         choices=["happy", "sad"],
-        default="happy",
-        help="Ending type: happy or sad"
+        default=None,
+        help="Ending type: happy or sad (interactive prompt if not provided)",
     )
     parser.add_argument(
         "--max-tokens",
         type=int,
         default=200,
-        help="Maximum number of tokens to generate"
+        help="Maximum number of tokens to generate",
     )
     parser.add_argument(
         "--temperature",
         type=float,
         default=1.0,
-        help="Sampling temperature (0=greedy, 1=neutral, >1=more random)"
+        help="Sampling temperature (0=greedy, 1=neutral, >1=more random)",
     )
     parser.add_argument(
         "--top-k",
         type=int,
         default=50,
-        help="Top-k sampling parameter (None to disable)"
+        help="Top-k sampling parameter (None to disable)",
     )
     parser.add_argument(
         "--device",
         type=str,
         choices=["cpu", "cuda", "mps"],
         default=None,
-        help="Device to use (auto-detect if not specified)"
+        help="Device to use (auto-detect if not specified)",
     )
 
     args = parser.parse_args()
+
+    # Set checkpoint based on model-size if not provided
+    if args.checkpoint is None:
+        args.checkpoint = f"checkpoints/sft_{args.model_size.upper()}_model/finetune_epoch_1.pt"
+
+    # Interactive prompts if topic or ending not provided
+    if args.topic is None:
+        args.topic = input("Write a short story about: ").strip()
+        if not args.topic:
+            args.topic = "a brave knight on an adventure"
+
+    if args.ending is None:
+        ending_choice = input("With: (happy/sad) ending: ").strip().lower()
+        if ending_choice not in ["happy", "sad"]:
+            ending_choice = "happy"
+        args.ending = ending_choice
 
     # Setup device
     if args.device:
         device = args.device
     else:
-        device = 'cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu')
+        device = (
+            "cuda"
+            if torch.cuda.is_available()
+            else ("mps" if torch.backends.mps.is_available() else "cpu")
+        )
 
     print(f"Using device: {device}\n")
 
@@ -224,7 +246,7 @@ if __name__ == "__main__":
         exit(1)
 
     # Generation parameters
-    print(f"Generation config:")
+    print("Generation config:")
     print(f"  Topic: '{args.topic}'")
     print(f"  Ending: {args.ending}")
     print(f"  Max tokens: {args.max_tokens}")
@@ -241,16 +263,16 @@ if __name__ == "__main__":
         max_new_tokens=args.max_tokens,
         temperature=args.temperature,
         top_k=args.top_k,
-        device=device
+        device=device,
     )
     end_time = time.time()
 
     elapsed_time = end_time - start_time
     tokens_per_sec = args.max_tokens / elapsed_time if elapsed_time > 0 else 0
 
-    print(f"Generated story:")
+    print("Generated story:")
     print(f"\n{story}\n")
 
-    print(f"Performance:")
+    print("Performance:")
     print(f"  Generated {args.max_tokens} tokens in {elapsed_time:.2f} seconds")
     print(f"  Throughput: {tokens_per_sec:.2f} tokens/sec")
