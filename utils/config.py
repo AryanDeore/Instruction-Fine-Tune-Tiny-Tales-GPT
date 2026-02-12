@@ -34,7 +34,7 @@ def get_config(model_size: str = "125m") -> dict:
     configs = {
         "125m": {
             "vocab_size": 50257,
-            "context_length": 1024,
+            "context_length": 512,
             "embedding_dim": 768,
             "num_heads": 12,
             "num_layers": 12,
