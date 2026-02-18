@@ -15,7 +15,7 @@ COPY . .
 RUN uv sync --frozen --no-dev
 
 # Expose port (Railway sets PORT env var automatically)
-EXPOSE 8000
+EXPOSE 7860
 
 # Run the Gradio app
 CMD ["uv", "run", "python", "app.py"]
