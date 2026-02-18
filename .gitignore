@@ -50,3 +50,7 @@ logs/
 .huggingface/
 
 notes/
+
+# Docker
+*.dockerfile
+docker-compose*.yml
