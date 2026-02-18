@@ -1,4 +1,4 @@
-"""Gradio web UI for story generation using fine-tuned GPT-2."""
+"""Gradio web UI for story generation using fine-tuned Llama 2."""
 
 import os
 
@@ -6,10 +6,11 @@ import gradio as gr
 import torch
 
 from generate import generate_story
-from models.gpt2 import GPT2
+from models.llama2 import Transformer
 
 # HF Hub repo for the SFT model
-HF_REPO_ID = os.environ.get("HF_REPO_ID", "0rn0/gpt2-30m-tinystories-sft")
+HF_REPO_ID = os.environ.get("HF_REPO_ID", "0rn0/llama2-15m-tinystories-sft")
+
 
 # Auto-detect device
 if torch.cuda.is_available():
@@ -21,7 +22,7 @@ else:
 
 # Load model from HF Hub using PyTorchModelHubMixin
 print(f"Loading model from {HF_REPO_ID}...")
-model = GPT2.from_pretrained(HF_REPO_ID)
+model = Transformer.from_pretrained(HF_REPO_ID)
 model = model.to(DEVICE)
 model.eval()
 print(f"Model loaded on {DEVICE}! Ready to generate stories.\n")
